@@ -55,7 +55,9 @@ export FOAM_USER_APPBIN="${HOME}/.OpenFOAM/${FOAM_API}/platforms/${WM_OPTIONS}/b
 export FOAM_USER_LIBBIN="${HOME}/.OpenFOAM/${FOAM_API}/platforms/${WM_OPTIONS}/lib"
 export FOAM_RUN="${HOME}/OpenFOAM/run"
 
-export FOAM_MPI=sys-mpich
+# Substituted at build time with whatever etc/bashrc derived from WM_MPLIB,
+# so this names the directory the libraries were actually installed into.
+export FOAM_MPI=@FOAM_MPI@
 export MPI_ARCH_PATH="${CONDA_PREFIX}"
 
 # Consumers such as NeoFOAM link $FOAM_LIBBIN/$FOAM_MPI for libPstream.

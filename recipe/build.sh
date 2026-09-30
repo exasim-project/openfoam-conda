@@ -60,8 +60,27 @@ rm -f applications/utilities/mesh/manipulation/setSet/Allwmake
 # ---------------------------------------------------------------------------
 # 3. Build.
 # ---------------------------------------------------------------------------
+# OpenFOAM's etc/bashrc reads variables before assigning them (v2512 and v2606 fail on
+# "WM_PROJECT_DIR: unbound variable" at line 184), so it cannot be sourced under `set -u`.
+# Drop nounset across the source only.
+#
+# WM_MPLIB is pinned rather than left to the bashrc's own detection, which picks
+# SYSTEMOPENMPI: the recipe depends on mpich, so an openmpi-flavoured Pstream would link
+# against an MPI the package does not ship. SYSTEMMPI takes the implementation from
+# MPI_ARCH_PATH, which is the conda prefix.
+export WM_MPLIB=SYSTEMMPI
+export MPI_ARCH_PATH="${PREFIX}"
+
+set +u
 # shellcheck disable=SC1091
 source etc/bashrc || true
+set -u
+
+# The bashrc derives FOAM_MPI from WM_MPLIB; capture it so the activation script and the
+# rpaths below name the same directory rather than a guessed one.
+: "${FOAM_MPI:?etc/bashrc did not set FOAM_MPI}"
+echo "Building with WM_MPLIB=${WM_MPLIB}, FOAM_MPI=${FOAM_MPI}"
+
 ./Allwmake -j "${CPU_COUNT}" -q -l
 
 # ---------------------------------------------------------------------------
@@ -97,8 +116,9 @@ find "${PREFIX}/bin" -name '*.bak' -delete
 ACTIVATE_DIR="${PREFIX}/etc/conda/activate.d"
 DEACTIVATE_DIR="${PREFIX}/etc/conda/deactivate.d"
 mkdir -p "${ACTIVATE_DIR}" "${DEACTIVATE_DIR}"
-sed "s|@OPENFOAM_API@|${PKG_VERSION}|g" "${RECIPE_DIR}/activate.sh" \
-    > "${ACTIVATE_DIR}/openfoam_activate.sh"
+sed -e "s|@OPENFOAM_API@|${PKG_VERSION}|g" \
+    -e "s|@FOAM_MPI@|${FOAM_MPI}|g" \
+    "${RECIPE_DIR}/activate.sh" > "${ACTIVATE_DIR}/openfoam_activate.sh"
 cp "${RECIPE_DIR}/deactivate.sh" "${DEACTIVATE_DIR}/openfoam_deactivate.sh"
 
 # ---------------------------------------------------------------------------

@@ -48,6 +48,9 @@ build:
   dynamic_linking:
     rpaths:
       - lib/
+      # FOAM_MPI depends on WM_MPLIB, which build.sh pins to SYSTEMMPI; list the
+      # plausible names so the rewrite finds libPstream wherever it landed.
+      - lib/sys-mpi/
       - lib/sys-mpich/
       - lib/dummy/
 
