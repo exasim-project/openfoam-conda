@@ -105,10 +105,74 @@ trap 'rm -f "${variant_file}"' EXIT
 
 rattler_build="${RATTLER_BUILD:-rattler-build}"
 
+# ---------------------------------------------------------------------------
+# macOS: build on a case-sensitive volume.
+#
+# OpenFOAM ships src/OpenFOAM/primitives/chars/wchar/wchar.H, which wmake links into
+# src/OpenFOAM/lnInclude and puts on the include path. macOS filesystems are
+# case-INSENSITIVE by default, so libc++'s <cwchar> doing `#include_next <wchar.h>`
+# resolves to OpenFOAM's wchar.H rather than the SDK's wchar.h:
+#
+#   <cwchar> tried including <wchar.h> but didn't find libc++'s <wchar.h> header
+#
+# and every std::string-dependent OpenFOAM type collapses after it. No compiler flag can
+# fix this — OpenFOAM's own macOS instructions require a case-sensitive filesystem.
+#
+# rattler-build derives SRC_DIR from --output-dir (<output>/bld/rattler-build_<pkg>_<n>/work),
+# so relocating that moves the entire build onto the volume. Packages are copied back to the
+# workspace afterwards so the workflow's artifact path is unchanged.
+# ---------------------------------------------------------------------------
+build_output_dir="${output_dir}"
+casefs_mount=""
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    casefs_mount="${OPENFOAM_CASEFS_MOUNT:-/Volumes/OpenFOAMBuild}"
+    casefs_image="${TMPDIR:-/tmp}/openfoam-build"
+
+    echo "Disk before creating the case-sensitive volume:" >&2
+    df -h / "${TMPDIR:-/tmp}" >&2 || true
+
+    if [[ ! -d "${casefs_mount}" ]]; then
+        # SPARSE so it consumes only what the build actually writes; macOS runners have
+        # limited free space and a fixed-size image would not fit.
+        hdiutil create -size 60g -type SPARSE -fs "Case-sensitive APFS" \
+            -volname OpenFOAMBuild -quiet "${casefs_image}"
+        hdiutil attach "${casefs_image}.sparseimage" \
+            -mountpoint "${casefs_mount}" -nobrowse -quiet
+    fi
+
+    # Prove it is actually case-sensitive rather than trusting the -fs argument.
+    probe="${casefs_mount}/.casecheck"
+    rm -rf "${probe}"; mkdir -p "${probe}"
+    printf 'lower\n' > "${probe}/wchar.h"
+    printf 'upper\n' > "${probe}/wchar.H"
+    if [[ "$(cat "${probe}/wchar.h")" != "lower" ]]; then
+        echo "${casefs_mount} is not case-sensitive — wchar.h and wchar.H collide." >&2
+        echo "The OpenFOAM build cannot succeed here." >&2
+        exit 1
+    fi
+    rm -rf "${probe}"
+    echo "Case-sensitive build volume ready at ${casefs_mount}" >&2
+
+    build_output_dir="${casefs_mount}/output"
+    mkdir -p "${build_output_dir}"
+fi
+
 "${rattler_build}" build \
     --recipe "${repo_root}/recipe/recipe.yaml" \
     --variant-config "${variant_file}" \
-    --output-dir "${output_dir}" \
+    --output-dir "${build_output_dir}" \
     --target-platform "${target_platform}" \
     --channel conda-forge \
     "$@"
+
+# Copy the packages back off the volume so the workflow finds them where it expects.
+if [[ -n "${casefs_mount}" && "${build_output_dir}" != "${output_dir}" ]]; then
+    mkdir -p "${output_dir}"
+    while IFS= read -r pkg; do
+        rel="${pkg#"${build_output_dir}"/}"
+        mkdir -p "${output_dir}/$(dirname "${rel}")"
+        cp "${pkg}" "${output_dir}/${rel}"
+        echo "Recovered ${rel}" >&2
+    done < <(find "${build_output_dir}" -type f -name '*.conda')
+fi
