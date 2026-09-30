@@ -152,8 +152,13 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     #
     # Keep only what OpenFOAM genuinely needs from the conda prefix: headers for flex and
     # friends, discoverable AFTER the SDK, and the library path.
-    export FOAM_EXTRA_CFLAGS="-idirafter ${PREFIX}/include"
-    export FOAM_EXTRA_CXXFLAGS="-idirafter ${PREFIX}/include"
+    # -isystem, not -idirafter: the generated flex scanner must compile against CONDA's
+    # FlexLexer.h. With conda's headers last, the SDK's older flex header wins and the
+    # scanner fails with "out-of-line definition of 'LexerInput' does not match any
+    # declaration". -idirafter was only ever a workaround for the wchar.h collision, which
+    # the case-sensitive build volume now fixes at its source.
+    export FOAM_EXTRA_CFLAGS="-isystem ${PREFIX}/include"
+    export FOAM_EXTRA_CXXFLAGS="-isystem ${PREFIX}/include"
     export FOAM_EXTRA_LDFLAGS="-L${PREFIX}/lib"
 fi
 
@@ -168,7 +173,13 @@ echo "FOAM_EXTRA_CXXFLAGS=${FOAM_EXTRA_CXXFLAGS}"
 # default under HOME so the workflow can persist it with actions/cache.
 if command -v ccache >/dev/null 2>&1; then
     export WM_COMPILE_CONTROL="${WM_COMPILE_CONTROL:+${WM_COMPILE_CONTROL} }+ccache"
-    export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.ccache}"
+    # A FIXED absolute path, deliberately not ${HOME}/.ccache: rattler-build sets
+    # HOME=$SRC_DIR, so the default put the cache inside the build directory, which is
+    # discarded after every build — it could never have persisted. This path is outside
+    # the build tree (and outside the macOS case-sensitive volume) and is what the
+    # workflow's actions/cache step caches.
+    export CCACHE_DIR="${OPENFOAM_CCACHE_DIR:-/tmp/openfoam-ccache}"
+    mkdir -p "${CCACHE_DIR}"
     # OpenFOAM rebuilds land in different temporary prefixes each run; without this the
     # hashes never match and the cache is useless.
     export CCACHE_BASEDIR="${SRC_DIR}"
