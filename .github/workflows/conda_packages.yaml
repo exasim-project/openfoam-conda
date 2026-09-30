@@ -123,7 +123,7 @@ jobs:
       - name: Restore ccache
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: /tmp/openfoam-ccache
           key: ccache-${{ matrix.platform }}-of${{ matrix.openfoam }}-${{ github.sha }}
           restore-keys: |
             ccache-${{ matrix.platform }}-of${{ matrix.openfoam }}-
