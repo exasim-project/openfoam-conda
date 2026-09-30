@@ -114,22 +114,40 @@ if [[ ! -f "${MPI_ARCH_PATH}/include/mpi.h" ]]; then
     exit 1
 fi
 
-./Allwmake -j "${CPU_COUNT}" -q -l
+./Allwmake -j "${CPU_COUNT}" -q -l || true
 
-# Allwmake exits 0 even when targets fail to compile. Without this check a broken tree is
-# installed and the failure only surfaces in the test phase, thousands of log lines away
-# from the compiler error that caused it. -l sends compile output to a file, so surface
-# the tail of that file here too.
-shopt -s nullglob
-_foam_core=("${FOAM_LIBBIN}"/libOpenFOAM.so "${FOAM_LIBBIN}"/libOpenFOAM.dylib)
-shopt -u nullglob
-if [[ ${#_foam_core[@]} -eq 0 ]]; then
-    echo "Allwmake reported success but libOpenFOAM was not produced in ${FOAM_LIBBIN}." >&2
+# Allwmake's exit status is not trustworthy — it returns 0 even when targets fail to
+# compile — and -l diverts compiler output into log.<WM_OPTIONS>, so nothing useful
+# reaches CI. Surface whatever errors it recorded, then verify the artefacts directly.
+if compgen -G "log.*" > /dev/null; then
+    echo "--- errors recorded by wmake (last 60) ---"
+    grep -hnE "Error [0-9]+|error:|fatal error" log.* | tail -n 60 || true
+    echo "--- end of wmake errors ---"
+fi
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    _lib_suffix=".dylib"
+else
+    _lib_suffix=".so"
+fi
+
+# Check a library AND an application: the previous build produced libOpenFOAM but no
+# applications at all, and a libraries-only check passed it straight through to the test
+# phase.
+_missing=()
+[[ -f "${FOAM_LIBBIN}/libOpenFOAM${_lib_suffix}" ]] || _missing+=("libOpenFOAM${_lib_suffix}")
+[[ -f "${FOAM_LIBBIN}/libfiniteVolume${_lib_suffix}" ]] || _missing+=("libfiniteVolume${_lib_suffix}")
+[[ -x "${FOAM_APPBIN}/blockMesh" ]] || _missing+=("blockMesh")
+[[ -x "${FOAM_APPBIN}/simpleFoam" ]] || _missing+=("simpleFoam")
+
+if (( ${#_missing[@]} > 0 )); then
+    echo "Allwmake did not produce: ${_missing[*]}" >&2
+    echo "FOAM_LIBBIN=${FOAM_LIBBIN} FOAM_APPBIN=${FOAM_APPBIN}" >&2
     echo "--- tail of the wmake log ---" >&2
-    tail -n 200 log.* >&2 || true
+    tail -n 300 log.* >&2 || true
     exit 1
 fi
-echo "Built ${_foam_core[0]}"
+echo "Built libOpenFOAM, libfiniteVolume, blockMesh and simpleFoam"
 
 # ---------------------------------------------------------------------------
 # 4. Install.
