@@ -66,8 +66,15 @@ jobs:
           IN_VERSIONS: ${{ inputs.openfoam_versions }}
           IN_PLATFORMS: ${{ inputs.platforms }}
         run: |
-          versions="${IN_VERSIONS:-'["2506","2512","2606"]'}"
-          platforms="${IN_PLATFORMS:-'["linux-64","osx-arm64"]'}"
+          # Written as explicit assignments rather than ${VAR:-default}: the defaults are
+          # JSON, and quoting them inside a parameter expansion embeds literal quotes that
+          # fromJSON then rejects. Only workflow_dispatch supplies these, so the tag-push
+          # path always takes the fallback.
+          versions="${IN_VERSIONS:-}"
+          platforms="${IN_PLATFORMS:-}"
+          [[ -n "${versions}" ]] || versions='["2506","2512","2606"]'
+          [[ -n "${platforms}" ]] || platforms='["linux-64","osx-arm64"]'
+
           echo "versions=${versions}" >> "${GITHUB_OUTPUT}"
           echo "platforms=${platforms}" >> "${GITHUB_OUTPUT}"
 
