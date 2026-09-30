@@ -57,6 +57,22 @@ find etc -name '*.bak' -delete
 # setSet's Allwmake needs readline; drop it as conda-forge does.
 rm -f applications/utilities/mesh/manipulation/setSet/Allwmake
 
+# Skip foamyMesh (the CGAL-based foamyHexMesh / foamyQuadMesh). It fails to link with
+# hundreds of undefined __gmpz_* references, and because generation/Allwmake ends with
+#     foamyMesh/Allwmake $targetType $*
+# its exit status becomes that script's — which aborted the entire applications build. Every
+# solver, simpleFoam included, was then silently never attempted, while blockMesh (built
+# earlier in the same directory) succeeded and masked it.
+#
+# Stubbed rather than deleted: that call is unconditional, so a missing file fails just the
+# same. Nothing in NeoFOAM's stack uses foamyMesh; reinstating it needs gmp on the link
+# line, not merely cgal in the host environment.
+_foamy="applications/utilities/mesh/generation/foamyMesh/Allwmake"
+if [[ -f "${_foamy}" ]]; then
+    printf '#!/bin/sh\necho "foamyMesh: skipped by the conda recipe"\nexit 0\n' > "${_foamy}"
+    chmod +x "${_foamy}"
+fi
+
 # ---------------------------------------------------------------------------
 # 3. Build.
 # ---------------------------------------------------------------------------
