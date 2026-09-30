@@ -89,10 +89,18 @@ export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"
 export MPI_ARCH_INC="-isystem ${PREFIX}/include"
 export MPI_ARCH_LIBS="-L${PREFIX}/lib -lmpi"
 
+# errexit is disabled explicitly rather than relying on `|| true`. OpenFOAM's bashrc ends
+# in a helper that returns 1 (_foamAddLibAuto with an empty argument), and on the macOS
+# runners — bash 3.2, whose errexit handling inside a `||` list is unreliable — that killed
+# the script even though the source was guarded. Linux (bash 5) was unaffected.
 set +u
+set +e
 # shellcheck disable=SC1091
-source etc/bashrc WM_MPLIB=SYSTEMMPI || true
+source etc/bashrc WM_MPLIB=SYSTEMMPI
+_bashrc_status=$?
+set -e
 set -u
+echo "etc/bashrc returned ${_bashrc_status} (non-zero is normal here)"
 
 # The bashrc unsets MPI_ARCH_PATH in its cleanup, so re-export all four afterwards as well:
 # wmake reads MPI_ARCH_INC / MPI_ARCH_FLAGS / MPI_ARCH_LIBS when it compiles, and referring
