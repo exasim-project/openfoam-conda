@@ -42,9 +42,11 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
+# Deliberately no `concurrency:` group. These builds run for hours, and grouping on
+# workflow+ref would make a second dispatch either cancel the first
+# (cancel-in-progress: true) or sit queued behind it (false). Dispatching one version
+# while another is still building is a normal thing to want here, so every run is
+# independent. Fan-out within a run comes from the matrix below.
 
 env:
   RATTLER_BUILD_VERSION: "0.75.0"
