@@ -23,9 +23,14 @@ package:
 
 source:
   # SourceForge rather than develop.openfoam.com: the GitLab archive and raw-file
-  # endpoints require authentication, so a CI build cannot fetch from them.
-  url: https://sourceforge.net/projects/openfoam/files/v${{ version }}/OpenFOAM-v${{ version }}.tgz/download
-  file_name: OpenFOAM-v${{ version }}.tgz
+  # endpoints require authentication and serve an HTML sign-in page to anonymous
+  # clients, with HTTP 200.
+  #
+  # Use the downloads.sourceforge.net form, whose basename is a real filename. The
+  # /files/...ts/download form resolves to the same bytes but its basename is literally
+  # "download", so rattler-build does not recognise it as an archive and copies it into
+  # the work directory instead of unpacking it. `file_name` does not change that.
+  url: https://downloads.sourceforge.net/project/openfoam/v${{ version }}/OpenFOAM-v${{ version }}.tgz
   sha256: ${{ openfoam_sha256 }}
 
 build:
