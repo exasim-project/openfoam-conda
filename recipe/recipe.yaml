@@ -77,6 +77,11 @@ requirements:
       then: llvm-openmp
     - cgal
     - fftw
+    # CGAL's exact arithmetic is built on gmp and mpfr. Without gmp on the link line the
+    # CGAL-dependent utilities (foamyHexMesh, surfaceBooleanFeatures) fail with hundreds
+    # of undefined __gmpz_* references, and each such failure aborts the applications
+    # build before any solver is reached.
+    - gmp
     - mpfr
     - ncurses
     - parmetis

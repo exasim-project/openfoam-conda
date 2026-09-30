@@ -137,7 +137,9 @@ export MPI_ARCH_LIBS="-L${PREFIX}/lib -lmpi"
 # ones, which keeps the include paths while leaving the optimisation level alone.
 export FOAM_EXTRA_CFLAGS="${CFLAGS}"
 export FOAM_EXTRA_CXXFLAGS="${CXXFLAGS}"
-export FOAM_EXTRA_LDFLAGS="${LDFLAGS:-}"
+# -lgmp -lmpfr: CGAL-based utilities need them explicitly. conda's LDFLAGS carry
+# -Wl,--as-needed, so they are dropped from links that do not use them.
+export FOAM_EXTRA_LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib -lgmp -lmpfr"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
     # Do NOT hand conda's compiler flags to the macOS build. OpenFOAM's darwin rules compile
