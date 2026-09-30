@@ -159,7 +159,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     # the case-sensitive build volume now fixes at its source.
     export FOAM_EXTRA_CFLAGS="-isystem ${PREFIX}/include"
     export FOAM_EXTRA_CXXFLAGS="-isystem ${PREFIX}/include"
-    export FOAM_EXTRA_LDFLAGS="-L${PREFIX}/lib"
+    # -headerpad_max_install_names is mandatory: rattler-build rewrites install names and
+    # rpaths of every binary after the build, and without padding in the Mach-O load
+    # commands install_name_tool fails with "larger updated load commands do not fit".
+    # conda's own LDFLAGS carry this, and dropping them here removed it.
+    # -lgmp -lmpfr for the CGAL-based utilities, as on linux.
+    export FOAM_EXTRA_LDFLAGS="-L${PREFIX}/lib -lgmp -lmpfr -Wl,-headerpad_max_install_names"
 fi
 
 echo "FOAM_EXTRA_CXXFLAGS=${FOAM_EXTRA_CXXFLAGS}"
