@@ -140,14 +140,19 @@ export FOAM_EXTRA_CXXFLAGS="${CXXFLAGS}"
 export FOAM_EXTRA_LDFLAGS="${LDFLAGS:-}"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    # macOS compiles against the Xcode SDK's libc++. -isystem $PREFIX/include orders conda's
-    # headers AHEAD of the SDK's, so libc++ resolves <wchar.h> to conda's copy and fails with
+    # Do NOT hand conda's compiler flags to the macOS build. OpenFOAM's darwin rules compile
+    # with /usr/bin/clang++ — Xcode's clang, using Xcode's SDK and its own libc++ — whereas
+    # conda's CXXFLAGS (-stdlib=libc++ plus conda's include directories) are written for
+    # conda's clang. Mixing them breaks libc++'s #include_next resolution:
     #   <cwchar> tried including <wchar.h> but didn't find libc++'s <wchar.h> header
-    # -idirafter keeps conda's headers reachable (flex, zlib, ...) while letting the SDK win
-    # for the standard library.
-    FOAM_EXTRA_CFLAGS="${FOAM_EXTRA_CFLAGS//-isystem /-idirafter }"
-    FOAM_EXTRA_CXXFLAGS="${FOAM_EXTRA_CXXFLAGS//-isystem /-idirafter }"
-    export FOAM_EXTRA_CFLAGS FOAM_EXTRA_CXXFLAGS
+    # and every std::string-dependent OpenFOAM typedef collapses after it. Reordering with
+    # -idirafter was not enough; the conflicting flags have to go entirely.
+    #
+    # Keep only what OpenFOAM genuinely needs from the conda prefix: headers for flex and
+    # friends, discoverable AFTER the SDK, and the library path.
+    export FOAM_EXTRA_CFLAGS="-idirafter ${PREFIX}/include"
+    export FOAM_EXTRA_CXXFLAGS="-idirafter ${PREFIX}/include"
+    export FOAM_EXTRA_LDFLAGS="-L${PREFIX}/lib"
 fi
 
 echo "FOAM_EXTRA_CXXFLAGS=${FOAM_EXTRA_CXXFLAGS}"
