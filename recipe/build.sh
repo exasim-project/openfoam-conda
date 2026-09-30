@@ -68,20 +68,46 @@ rm -f applications/utilities/mesh/manipulation/setSet/Allwmake
 # SYSTEMOPENMPI: the recipe depends on mpich, so an openmpi-flavoured Pstream would link
 # against an MPI the package does not ship. SYSTEMMPI takes the implementation from
 # MPI_ARCH_PATH, which is the conda prefix.
-export WM_MPLIB=SYSTEMMPI
-export MPI_ARCH_PATH="${PREFIX}"
-
+# WM_MPLIB must be passed as a bashrc ARGUMENT, not exported beforehand: etc/bashrc
+# assigns it unconditionally, so an earlier export is silently overwritten. Leaving it at
+# the default SYSTEMOPENMPI made every build fail with "mpi.h: No such file or directory",
+# since the recipe depends on mpich. SYSTEMMPI takes the implementation from
+# MPI_ARCH_PATH.
 set +u
 # shellcheck disable=SC1091
-source etc/bashrc || true
+source etc/bashrc WM_MPLIB=SYSTEMMPI || true
 set -u
 
-# The bashrc derives FOAM_MPI from WM_MPLIB; capture it so the activation script and the
-# rpaths below name the same directory rather than a guessed one.
+export MPI_ARCH_PATH="${PREFIX}"
+
 : "${FOAM_MPI:?etc/bashrc did not set FOAM_MPI}"
-echo "Building with WM_MPLIB=${WM_MPLIB}, FOAM_MPI=${FOAM_MPI}"
+echo "Building with WM_MPLIB=${WM_MPLIB}, FOAM_MPI=${FOAM_MPI}, MPI_ARCH_PATH=${MPI_ARCH_PATH}"
+
+if [[ "${WM_MPLIB}" != "SYSTEMMPI" ]]; then
+    echo "etc/bashrc overrode WM_MPLIB to '${WM_MPLIB}'; expected SYSTEMMPI." >&2
+    exit 1
+fi
+if [[ ! -f "${MPI_ARCH_PATH}/include/mpi.h" ]]; then
+    echo "No mpi.h under ${MPI_ARCH_PATH}/include — the mpich host dependency is missing." >&2
+    exit 1
+fi
 
 ./Allwmake -j "${CPU_COUNT}" -q -l
+
+# Allwmake exits 0 even when targets fail to compile. Without this check a broken tree is
+# installed and the failure only surfaces in the test phase, thousands of log lines away
+# from the compiler error that caused it. -l sends compile output to a file, so surface
+# the tail of that file here too.
+shopt -s nullglob
+_foam_core=("${FOAM_LIBBIN}"/libOpenFOAM.so "${FOAM_LIBBIN}"/libOpenFOAM.dylib)
+shopt -u nullglob
+if [[ ${#_foam_core[@]} -eq 0 ]]; then
+    echo "Allwmake reported success but libOpenFOAM was not produced in ${FOAM_LIBBIN}." >&2
+    echo "--- tail of the wmake log ---" >&2
+    tail -n 200 log.* >&2 || true
+    exit 1
+fi
+echo "Built ${_foam_core[0]}"
 
 # ---------------------------------------------------------------------------
 # 4. Install.
