@@ -157,6 +157,27 @@ fi
 
 echo "FOAM_EXTRA_CXXFLAGS=${FOAM_EXTRA_CXXFLAGS}"
 
+# ccache. wmake reads WM_COMPILE_CONTROL and honours "+ccache" — but only when queue mode
+# is inactive (wmake checks `[ "$opt_all" != queue ]`), which is why Allwmake is invoked
+# without -q. Set after sourcing, since the bashrc owns this variable.
+#
+# A full OpenFOAM build is ~2.5 h on a 4-core runner, so an uncached rebuild dominates every
+# iteration. With the cache warm the same build is minutes. CCACHE_DIR stays at ccache's
+# default under HOME so the workflow can persist it with actions/cache.
+if command -v ccache >/dev/null 2>&1; then
+    export WM_COMPILE_CONTROL="${WM_COMPILE_CONTROL:+${WM_COMPILE_CONTROL} }+ccache"
+    export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.ccache}"
+    # OpenFOAM rebuilds land in different temporary prefixes each run; without this the
+    # hashes never match and the cache is useless.
+    export CCACHE_BASEDIR="${SRC_DIR}"
+    export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-time_macros,include_file_mtime,include_file_ctime}"
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-5G}"
+    ccache --zero-stats > /dev/null 2>&1 || true
+    echo "ccache enabled: CCACHE_DIR=${CCACHE_DIR}, WM_COMPILE_CONTROL=${WM_COMPILE_CONTROL}"
+else
+    echo "ccache not found; building without it"
+fi
+
 : "${FOAM_MPI:?etc/bashrc did not set FOAM_MPI}"
 echo "Building with WM_MPLIB=${WM_MPLIB}, FOAM_MPI=${FOAM_MPI}, MPI_ARCH_PATH=${MPI_ARCH_PATH}"
 
@@ -180,6 +201,7 @@ set +e
 _allwmake_status=$?
 set -e
 echo "Allwmake exited with status ${_allwmake_status} (137 = SIGKILL, typically OOM)"
+command -v ccache >/dev/null 2>&1 && { echo "--- ccache statistics ---"; ccache --show-stats 2>/dev/null || ccache -s || true; }
 command -v free >/dev/null 2>&1 && free -h || true
 
 # Allwmake's exit status is not trustworthy — it returns 0 even when targets fail to

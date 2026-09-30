@@ -62,6 +62,9 @@ requirements:
     - make
     - cmake
     - mpich
+    # A cold OpenFOAM build is ~2.5 h on a 4-core runner; the workflow persists
+    # CCACHE_DIR between runs so iterations do not pay that repeatedly.
+    - ccache
   host:
     - scotch
     - ptscotch
