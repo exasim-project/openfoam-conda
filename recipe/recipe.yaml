@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: 2026 NeoFOAM authors
+#
+# SPDX-License-Identifier: Unlicense
+
+# yaml-language-server: $schema=https://raw.githubusercontent.com/prefix-dev/recipe-format/main/schema.json
+#
+# rattler-build recipe for OpenFOAM, published to a prefix.dev channel.
+#
+# Why this exists rather than using conda-forge's openfoam: see README.md. In short,
+# conda-forge has only v2412, its build appends flags that override wmake's -O3 and
+# silently corrupt 3-D results (openfoam-feedstock#8), and it ships neither the `src`
+# nor the `applications` tree that its own activation script advertises.
+#
+# Dependency set is ported from conda-forge/openfoam-feedstock's meta.yaml, which is
+# the work of its maintainers (ldallolio, daviddanan). The build script is not.
+
+context:
+  version: ${{ openfoam_version }}
+
+package:
+  name: openfoam
+  version: ${{ version }}
+
+source:
+  # SourceForge rather than develop.openfoam.com: the GitLab archive and raw-file
+  # endpoints require authentication, so a CI build cannot fetch from them.
+  url: https://sourceforge.net/projects/openfoam/files/v${{ version }}/OpenFOAM-v${{ version }}.tgz/download
+  file_name: OpenFOAM-v${{ version }}.tgz
+  sha256: ${{ openfoam_sha256 }}
+
+build:
+  number: 0
+  string: h${{ hash }}_${{ build_number }}
+  skip:
+    # Windows is not a target. OpenFOAM's wmake has darwin64/darwin64Clang/darwin64Gcc
+    # rules, so macOS is supported upstream — but see README.md, osx-arm64 is the
+    # higher-risk target here and may need patches.
+    - win
+  variant:
+    # Without this the three OpenFOAM versions hash identically.
+    use_keys:
+      - openfoam_version
+  dynamic_linking:
+    rpaths:
+      - lib/
+      - lib/sys-mpich/
+      - lib/dummy/
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
+    - ${{ stdlib('c') }}
+    - make
+    - cmake
+    - mpich
+  host:
+    - scotch
+    - ptscotch
+    - zoltan
+    - kahip
+    - mpich
+    - if: linux
+      then: libgomp
+    - if: osx
+      then: llvm-openmp
+    - cgal
+    - fftw
+    - mpfr
+    - ncurses
+    - parmetis
+    - petsc
+    - hypre
+    - flex
+    - zlib
+  run:
+    - metis
+
+tests:
+  - script:
+      - if: linux
+        then:
+          - test -f ${PREFIX}/lib/libOpenFOAM.so
+      - if: osx
+        then:
+          - test -f ${PREFIX}/lib/libOpenFOAM.dylib
+      - test -f ${PREFIX}/bin/blockMesh
+      # The two trees conda-forge's activation script advertises but does not ship.
+      # Downstream projects that COMPILE against OpenFOAM need both: NeoFOAM reads
+      # $FOAM_SRC/<module>/lnInclude, and pybFoam compiles application sources out of
+      # $WM_PROJECT_DIR/applications/utilities/mesh/manipulation/checkMesh.
+      - test -d ${PREFIX}/src/OpenFOAM/lnInclude
+      - test -d ${PREFIX}/src/Pstream/mpi/lnInclude
+      - test -f ${PREFIX}/applications/utilities/mesh/manipulation/checkMesh/checkGeometry.C
+      # A 3-D regression case. conda-forge's only run-test is pitzDaily, which is
+      # planar 2-D and bit-for-bit immune to the vectorisation defect that made its
+      # packages wrong — so it passed throughout. This one would not have.
+      - bash ${RECIPE_DIR}/run_test.sh
+    files:
+      recipe:
+        - run_test.sh
+        - test_case/
+
+about:
+  homepage: https://openfoam.com/
+  repository: https://develop.openfoam.com/Development/openfoam
+  documentation: https://www.openfoam.com/documentation/overview
+  license: GPL-3.0-only
+  license_file:
+    - COPYING
+  summary: OpenFOAM ${{ version }} (ESI), built with the source and application trees
+  description: |
+    OpenFOAM is a free, open source CFD toolbox released by ESI-OpenCFD.
+
+    This build differs from conda-forge's in three ways: it does not let conda's
+    default optimisation flags override wmake's -O3 (see openfoam-feedstock#8), it
+    ships the complete src/ and applications/ trees so downstream projects can
+    compile against it, and its activation script exports FOAM_* variables that
+    point at paths the package actually contains.
+
+extra:
+  recipe-maintainers:
+    - greole

@@ -1,0 +1,171 @@
+# SPDX-FileCopyrightText: 2026 NeoFOAM authors
+#
+# SPDX-License-Identifier: MIT
+
+name: Conda packages
+
+# Builds OpenFOAM conda packages with rattler-build and publishes them to a prefix.dev
+# channel, so that `pixi add openfoam -c https://prefix.dev/<channel>` resolves a build
+# that is correct in 3-D and ships the src/ and applications/ trees.
+#
+# Requires two repository settings:
+#   vars.PREFIX_DEV_CHANNEL     e.g. greole/exasim-project
+#   secrets.PREFIX_DEV_API_KEY  an API key with write access to that channel
+
+on:
+  workflow_dispatch:
+    inputs:
+      openfoam_versions:
+        description: "JSON list of OpenFOAM versions to build"
+        required: false
+        default: '["2506","2512","2606"]'
+        type: string
+      platforms:
+        description: "JSON list of target platforms"
+        required: false
+        default: '["linux-64","osx-arm64"]'
+        type: string
+      publish:
+        description: "Publish the built packages to prefix.dev"
+        required: false
+        default: false
+        type: boolean
+      channel:
+        description: "Override the prefix.dev channel to publish to"
+        required: false
+        default: ""
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  RATTLER_BUILD_VERSION: "0.75.0"
+
+jobs:
+  matrix:
+    name: Resolve build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.set.outputs.versions }}
+      platforms: ${{ steps.set.outputs.platforms }}
+    steps:
+      - name: Resolve inputs
+        id: set
+        shell: bash
+        # Inputs reach bash through the environment rather than ${{ }} interpolation,
+        # which would splice caller-controlled text into the script.
+        env:
+          IN_VERSIONS: ${{ inputs.openfoam_versions }}
+          IN_PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          versions="${IN_VERSIONS:-'["2506","2512","2606"]'}"
+          platforms="${IN_PLATFORMS:-'["linux-64","osx-arm64"]'}"
+          echo "versions=${versions}" >> "${GITHUB_OUTPUT}"
+          echo "platforms=${platforms}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: OpenFOAM ${{ matrix.openfoam }} ${{ matrix.platform }}
+    needs: matrix
+    runs-on: ${{ matrix.platform == 'osx-arm64' && 'macos-14' || 'ubuntu-latest' }}
+    # OpenFOAM is a multi-hour build; the default 360 min cap is the real constraint.
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        openfoam: ${{ fromJSON(needs.matrix.outputs.versions) }}
+        platform: ${{ fromJSON(needs.matrix.outputs.platforms) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install rattler-build
+        run: |
+          ci/install_rattler_build.sh "${RATTLER_BUILD_VERSION}" "${HOME}/.local/bin"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      # Compiling all of OpenFOAM needs considerably more disk than a stock runner
+      # leaves free.
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          df -h /
+
+      # The conda clang toolchain needs an SDK to compile against; GitHub runners ship
+      # one with Xcode rather than as a conda package.
+      - name: Point the conda toolchain at the macOS SDK
+        if: runner.os == 'macOS'
+        run: echo "CONDA_BUILD_SYSROOT=$(xcrun --show-sdk-path)" >> "${GITHUB_ENV}"
+
+      - name: Build conda package
+        run: |
+          ci/build_conda_packages.sh \
+            --openfoam-version "${{ matrix.openfoam }}" \
+            --target-platform "${{ matrix.platform }}" \
+            --output-dir output
+
+      - name: Upload conda package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: conda-openfoam-${{ matrix.openfoam }}-${{ matrix.platform }}
+          path: output/**/*.conda
+          if-no-files-found: error
+
+  publish:
+    name: Publish to prefix.dev
+    needs: build
+    if: >
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled') &&
+      (startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish))
+    runs-on: ubuntu-latest
+    environment:
+      name: prefix-dev
+      url: https://prefix.dev/channels/${{ inputs.channel || vars.PREFIX_DEV_CHANNEL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install rattler-build
+        run: |
+          ci/install_rattler_build.sh "${RATTLER_BUILD_VERSION}" "${HOME}/.local/bin"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Download conda package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: conda-openfoam-*
+          path: packages
+          merge-multiple: true
+
+      - name: List packages selected for publishing
+        run: find packages -type f -name "*.conda" -print -exec ls -lh {} \;
+
+      - name: Publish to prefix.dev
+        env:
+          PREFIX_API_KEY: ${{ secrets.PREFIX_DEV_API_KEY }}
+          PREFIX_CHANNEL: ${{ inputs.channel || vars.PREFIX_DEV_CHANNEL }}
+        run: |
+          if [[ -z "${PREFIX_CHANNEL}" ]]; then
+            echo "No prefix.dev channel configured."
+            echo "Set the PREFIX_DEV_CHANNEL repository variable or pass the channel input."
+            exit 1
+          fi
+
+          mapfile -t packages < <(find packages -type f -name "*.conda" | sort)
+          if [[ ${#packages[@]} -eq 0 ]]; then
+            echo "No .conda packages were downloaded, nothing to publish."
+            exit 1
+          fi
+
+          rattler-build upload prefix --channel "${PREFIX_CHANNEL}" --skip-existing "${packages[@]}"
