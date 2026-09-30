@@ -122,7 +122,23 @@ if [[ ! -f "${MPI_ARCH_PATH}/include/mpi.h" ]]; then
     exit 1
 fi
 
-./Allwmake -j "${CPU_COUNT}" -q -l || true
+# -q (wmakeCollect queue mode) is deliberately NOT used: it defers compilation into a
+# batch, which makes a partial build hard to attribute. Plain parallel wmake reports each
+# failure where it happens.
+#
+# Parallelism is capped at 2. The previous run died mid-compile after ~11 minutes with an
+# empty error log — the signature of a killed process rather than a failed one — and a
+# 4-core GitHub runner compiling OpenFOAM with -j4 is a plausible OOM. If the capped build
+# still dies, the exit status below distinguishes the cases (137 = SIGKILL).
+_jobs="${CPU_COUNT}"
+[[ "${_jobs}" -gt 2 ]] && _jobs=2
+
+set +e
+./Allwmake -j "${_jobs}" -l
+_allwmake_status=$?
+set -e
+echo "Allwmake exited with status ${_allwmake_status} (137 = SIGKILL, typically OOM)"
+command -v free >/dev/null 2>&1 && free -h || true
 
 # Allwmake's exit status is not trustworthy — it returns 0 even when targets fail to
 # compile — and -l diverts compiler output into log.<WM_OPTIONS>, so nothing useful
