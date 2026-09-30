@@ -73,12 +73,26 @@ rm -f applications/utilities/mesh/manipulation/setSet/Allwmake
 # the default SYSTEMOPENMPI made every build fail with "mpi.h: No such file or directory",
 # since the recipe depends on mpich. SYSTEMMPI takes the implementation from
 # MPI_ARCH_PATH.
+# SYSTEMMPI does NOT derive its compile flags from MPI_ARCH_PATH. etc/config.sh/mpi reads
+# MPI_ARCH_PATH while it is being sourced, and wmake/rules/General/mplibSYSTEMMPI uses
+# MPI_ARCH_FLAGS / MPI_ARCH_INC / MPI_ARCH_LIBS verbatim:
+#
+#   PFLAGS = $(MPI_ARCH_FLAGS)
+#   PINC   = $(MPI_ARCH_INC)
+#   PLIBS  = $(MPI_ARCH_LIBS)
+#
+# OpenFOAM only prints a warning when they are unset, so an empty PINC shows up much later
+# as "mpi.h: No such file or directory". All four must therefore be exported BEFORE the
+# bashrc is sourced.
+export MPI_ARCH_PATH="${PREFIX}"
+export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"
+export MPI_ARCH_INC="-isystem ${PREFIX}/include"
+export MPI_ARCH_LIBS="-L${PREFIX}/lib -lmpi"
+
 set +u
 # shellcheck disable=SC1091
 source etc/bashrc WM_MPLIB=SYSTEMMPI || true
 set -u
-
-export MPI_ARCH_PATH="${PREFIX}"
 
 : "${FOAM_MPI:?etc/bashrc did not set FOAM_MPI}"
 echo "Building with WM_MPLIB=${WM_MPLIB}, FOAM_MPI=${FOAM_MPI}, MPI_ARCH_PATH=${MPI_ARCH_PATH}"
