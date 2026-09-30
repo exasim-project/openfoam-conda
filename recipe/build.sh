@@ -110,6 +110,20 @@ export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"
 export MPI_ARCH_INC="-isystem ${PREFIX}/include"
 export MPI_ARCH_LIBS="-L${PREFIX}/lib -lmpi"
 
+# wmake builds its own compile lines from wmake/rules and ignores CFLAGS/CXXFLAGS entirely.
+# The only supported injection point is FOAM_EXTRA_*, and etc/bashrc explicitly unsets those
+# ("unset FOAM_EXTRA_CFLAGS FOAM_EXTRA_CXXFLAGS FOAM_EXTRA_LDFLAGS"), so they have to be set
+# AFTER sourcing. Without them nothing conda provides is on the include path, and the build
+# dies on "FlexLexer.h: No such file or directory" once it reaches src/fileFormats.
+#
+# This is also, precisely, how conda-forge's package became wrong: it injects the UNSCRUBBED
+# conda flags here, so -O2 -ftree-vectorize lands after wmake's -O3. We inject the scrubbed
+# ones, which keeps the include paths while leaving the optimisation level alone.
+export FOAM_EXTRA_CFLAGS="${CFLAGS}"
+export FOAM_EXTRA_CXXFLAGS="${CXXFLAGS}"
+export FOAM_EXTRA_LDFLAGS="${LDFLAGS:-}"
+echo "FOAM_EXTRA_CXXFLAGS=${FOAM_EXTRA_CXXFLAGS}"
+
 : "${FOAM_MPI:?etc/bashrc did not set FOAM_MPI}"
 echo "Building with WM_MPLIB=${WM_MPLIB}, FOAM_MPI=${FOAM_MPI}, MPI_ARCH_PATH=${MPI_ARCH_PATH}"
 
@@ -126,15 +140,10 @@ fi
 # batch, which makes a partial build hard to attribute. Plain parallel wmake reports each
 # failure where it happens.
 #
-# Parallelism is capped at 2. The previous run died mid-compile after ~11 minutes with an
-# empty error log — the signature of a killed process rather than a failed one — and a
-# 4-core GitHub runner compiling OpenFOAM with -j4 is a plausible OOM. If the capped build
-# still dies, the exit status below distinguishes the cases (137 = SIGKILL).
-_jobs="${CPU_COUNT}"
-[[ "${_jobs}" -gt 2 ]] && _jobs=2
-
+# Full parallelism: the earlier stall was a genuine compile error (missing FlexLexer.h),
+# not memory pressure — the full job log contains no OOM, kill or cancellation marker.
 set +e
-./Allwmake -j "${_jobs}" -l
+./Allwmake -j "${CPU_COUNT}" -l
 _allwmake_status=$?
 set -e
 echo "Allwmake exited with status ${_allwmake_status} (137 = SIGKILL, typically OOM)"
