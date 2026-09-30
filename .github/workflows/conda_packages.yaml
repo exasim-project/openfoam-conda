@@ -115,6 +115,20 @@ jobs:
         if: runner.os == 'macOS'
         run: echo "CONDA_BUILD_SYSROOT=$(xcrun --show-sdk-path)" >> "${GITHUB_ENV}"
 
+      # A cold OpenFOAM build is ~2.5 h on a 4-core runner (3 on macOS), which dominates
+      # every iteration. recipe/build.sh enables wmake's +ccache when ccache is present;
+      # this persists the cache between runs so only changed objects recompile.
+      # restore-keys lets a new OpenFOAM version start from the previous version's cache,
+      # which still shares a large fraction of its objects.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ matrix.platform }}-of${{ matrix.openfoam }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.platform }}-of${{ matrix.openfoam }}-
+            ccache-${{ matrix.platform }}-
+
       - name: Build conda package
         run: |
           ci/build_conda_packages.sh \
