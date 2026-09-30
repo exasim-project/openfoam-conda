@@ -122,6 +122,18 @@ export MPI_ARCH_LIBS="-L${PREFIX}/lib -lmpi"
 export FOAM_EXTRA_CFLAGS="${CFLAGS}"
 export FOAM_EXTRA_CXXFLAGS="${CXXFLAGS}"
 export FOAM_EXTRA_LDFLAGS="${LDFLAGS:-}"
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    # macOS compiles against the Xcode SDK's libc++. -isystem $PREFIX/include orders conda's
+    # headers AHEAD of the SDK's, so libc++ resolves <wchar.h> to conda's copy and fails with
+    #   <cwchar> tried including <wchar.h> but didn't find libc++'s <wchar.h> header
+    # -idirafter keeps conda's headers reachable (flex, zlib, ...) while letting the SDK win
+    # for the standard library.
+    FOAM_EXTRA_CFLAGS="${FOAM_EXTRA_CFLAGS//-isystem /-idirafter }"
+    FOAM_EXTRA_CXXFLAGS="${FOAM_EXTRA_CXXFLAGS//-isystem /-idirafter }"
+    export FOAM_EXTRA_CFLAGS FOAM_EXTRA_CXXFLAGS
+fi
+
 echo "FOAM_EXTRA_CXXFLAGS=${FOAM_EXTRA_CXXFLAGS}"
 
 : "${FOAM_MPI:?etc/bashrc did not set FOAM_MPI}"
