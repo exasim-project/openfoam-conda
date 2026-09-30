@@ -26,9 +26,14 @@ set -euo pipefail
 TOL="${OPENFOAM_TEST_TOL:-0.08}"      # 8%; observed defect is ~24%
 ANALYTIC="0.28454"
 
+# RECIPE_DIR is not set in the test environment — rattler-build copies the files listed
+# under tests.files.recipe into the test working directory instead. Resolve relative to
+# this script so the test works from any cwd.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
-cp -r "${RECIPE_DIR}/test_case" "${work}/duct"
+cp -r "${script_dir}/test_case" "${work}/duct"
 cd "${work}/duct"
 
 echo "== blockMesh =="

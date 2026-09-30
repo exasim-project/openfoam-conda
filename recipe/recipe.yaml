@@ -111,7 +111,7 @@ tests:
       # A 3-D regression case. conda-forge's only run-test is pitzDaily, which is
       # planar 2-D and bit-for-bit immune to the vectorisation defect that made its
       # packages wrong — so it passed throughout. This one would not have.
-      - bash ${RECIPE_DIR}/run_test.sh
+      - bash run_test.sh
     files:
       recipe:
         - run_test.sh
