@@ -94,6 +94,14 @@ set +u
 source etc/bashrc WM_MPLIB=SYSTEMMPI || true
 set -u
 
+# The bashrc unsets MPI_ARCH_PATH in its cleanup, so re-export all four afterwards as well:
+# wmake reads MPI_ARCH_INC / MPI_ARCH_FLAGS / MPI_ARCH_LIBS when it compiles, and referring
+# to MPI_ARCH_PATH below would otherwise abort under `set -u`.
+export MPI_ARCH_PATH="${PREFIX}"
+export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"
+export MPI_ARCH_INC="-isystem ${PREFIX}/include"
+export MPI_ARCH_LIBS="-L${PREFIX}/lib -lmpi"
+
 : "${FOAM_MPI:?etc/bashrc did not set FOAM_MPI}"
 echo "Building with WM_MPLIB=${WM_MPLIB}, FOAM_MPI=${FOAM_MPI}, MPI_ARCH_PATH=${MPI_ARCH_PATH}"
 
