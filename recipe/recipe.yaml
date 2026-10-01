@@ -123,11 +123,11 @@ about:
   documentation: https://www.openfoam.com/documentation/overview
   license: GPL-3.0-only
   license_file:
-    # OpenFOAM renamed this in v2606: COPYING through v2512, LICENSE.md from v2606.
-    # rattler-build copies whichever exists and fails the build if none do, so listing
-    # both keeps one recipe working across all three releases.
+    # Always COPYING: build.sh normalises the name, because OpenFOAM renamed the file to
+    # LICENSE.md in v2606. Listing both here did NOT work — rattler-build still reported
+    # "No license files were copied" for v2606 even though LICENSE.md was present in the
+    # source root, so the list is not an either/or.
     - COPYING
-    - LICENSE.md
   summary: OpenFOAM ${{ version }} (ESI), built with the source and application trees
   description: |
     OpenFOAM is a free, open source CFD toolbox released by ESI-OpenCFD.

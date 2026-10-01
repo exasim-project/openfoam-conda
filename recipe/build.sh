@@ -38,6 +38,24 @@ echo "Scrubbed CXXFLAGS: ${CXXFLAGS}"
 FOAM_DIR_NAME="OpenFOAM-v${PKG_VERSION}"
 cd "${SRC_DIR}/${FOAM_DIR_NAME}" 2>/dev/null || cd "${SRC_DIR}"
 
+# OpenFOAM renamed its licence file from COPYING to LICENSE.md in v2606. The recipe declares
+# a single license_file (COPYING) and rattler-build fails the whole build when it finds none,
+# so give it one name that always exists. Listing both in the recipe did not work.
+if [[ ! -f COPYING ]]; then
+    for _lic in LICENSE.md LICENSE COPYING.md; do
+        if [[ -f "${_lic}" ]]; then
+            echo "Licence file is ${_lic}; copying to COPYING for packaging"
+            cp "${_lic}" COPYING
+            break
+        fi
+    done
+fi
+if [[ ! -f COPYING ]]; then
+    echo "No licence file found in the OpenFOAM source root:" >&2
+    ls -1 | head -30 >&2
+    exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # 2. Point OpenFOAM's own config at the conda prefix, as conda-forge does.
 # ---------------------------------------------------------------------------
