@@ -32,6 +32,14 @@ COPY docker/activate.sh /opt/openfoam/activate.sh
 FROM ${BASE_IMAGE}
 ARG OPENFOAM_VERSION
 COPY --from=env /opt/openfoam /opt/openfoam
+# A base image that brings its own MPICH, such as the GPU-aware one in the Ginkgo GPU
+# images, must be the one OpenFOAM uses: drop the conda copy of libmpi so libPstream and
+# the other conda libraries resolve to the base image's. Both are MPICH ABI
+# (libmpi.so.12), and OpenFOAM was built against MPICH 5, so no rebuild is needed.
+RUN if ldconfig -p | grep -q 'libmpi\.so\.12 '; then \
+        rm -f /opt/openfoam/lib/libmpi.so*; \
+        echo "OpenFOAM uses the base image's MPI: $(ldconfig -p | grep 'libmpi\.so\.12 ')"; \
+    fi
 # BASH_ENV covers non-interactive bash (CI scripts, `bash -c`), ENV covers POSIX sh,
 # bash.bashrc covers interactive shells.
 RUN echo '. /opt/openfoam/activate.sh' >> /etc/bash.bashrc

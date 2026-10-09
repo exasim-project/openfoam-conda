@@ -6,14 +6,14 @@ name: Docker images
 
 # Builds OpenFOAM Docker images from the published conda packages (docker/Dockerfile),
 # runs the 3-D duct regression test inside each image and pushes them to
-# ghcr.io/<owner>/<variant>:<openfoam version>.
+# ghcr.io/<owner>/<variant>:<openfoam version> and :<openfoam version>-<YYYYMMDD>.
 #
-# A variant is an image name plus a base image. The default is a plain ubuntu image;
-# OpenFOAM can be layered on other images, e.g. the Ginkgo GPU images from
-# ginkgo-packaging, by dispatching with
-#   variants: [{"name":"openfoam-ginkgo-rocm","base":"ghcr.io/exasim-project/ginkgo-rocm:nightly-20261009"}]
-# A private base image on ghcr.io must grant this repository read access
-# (package settings -> Manage Actions access).
+# A variant is an image name plus a base image. By default these are a plain ubuntu
+# image and OpenFOAM on top of each Ginkgo image from ginkgo-packaging
+# (openfoam-ginkgo-{cpu,cuda,rocm,sycl}), whose GPU-aware MPICH OpenFOAM then uses.
+# The weekly run picks up new Ginkgo nightlies; dispatch to rebuild sooner. A private
+# base image on ghcr.io must grant this repository read access (package settings ->
+# Manage Actions access).
 
 on:
   workflow_dispatch:
@@ -24,9 +24,9 @@ on:
         default: '["2506","2512","2606"]'
         type: string
       variants:
-        description: 'JSON list of {"name": image name, "base": base image}'
+        description: 'JSON list of {"name": image name, "base": base image}; empty builds all'
         required: false
-        default: '[{"name":"openfoam","base":"ubuntu:24.04"}]'
+        default: ""
         type: string
       push:
         description: "Push the images to ghcr.io"
@@ -36,6 +36,9 @@ on:
   push:
     tags:
       - "v*"
+  # Weekly, after the Ginkgo nightlies, so the openfoam-ginkgo images follow Ginkgo develop.
+  schedule:
+    - cron: "0 6 * * 1"
   # Build-only check of the Dockerfile; nothing is pushed.
   pull_request:
     paths:
@@ -57,6 +60,7 @@ jobs:
       versions: ${{ steps.set.outputs.versions }}
       variants: ${{ steps.set.outputs.variants }}
       push: ${{ steps.set.outputs.push }}
+      date: ${{ steps.set.outputs.date }}
     steps:
       - name: Resolve inputs
         id: set
@@ -70,18 +74,27 @@ jobs:
           versions="${IN_VERSIONS:-}"
           variants="${IN_VARIANTS:-}"
           [[ -n "${versions}" ]] || versions='["2506","2512","2606"]'
-          [[ -n "${variants}" ]] || variants='[{"name":"openfoam","base":"ubuntu:24.04"}]'
+          if [[ -z "${variants}" ]]; then
+            variants='[{"name":"openfoam","base":"ubuntu:24.04"}'
+            for backend in cpu cuda rocm sycl; do
+              variants+=",{\"name\":\"openfoam-ginkgo-${backend}\",\"base\":\"ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ginkgo-${backend}:nightly\"}"
+            done
+            variants+=']'
+          fi
           # Validate early, a malformed input otherwise fails in fromJSON with a vague error.
           jq -e 'type == "array" and length > 0' <<<"${versions}" >/dev/null
           jq -e 'type == "array" and length > 0 and all(.name and .base)' <<<"${variants}" >/dev/null
 
           push=false
-          if [[ "${GITHUB_REF_TYPE}" == "tag" || "${IN_PUSH}" == "true" ]]; then push=true; fi
+          if [[ "${GITHUB_REF_TYPE}" == "tag" || "${GITHUB_EVENT_NAME}" == "schedule" || "${IN_PUSH}" == "true" ]]; then
+            push=true
+          fi
 
           {
             echo "versions=$(jq -c . <<<"${versions}")"
             echo "variants=$(jq -c . <<<"${variants}")"
             echo "push=${push}"
+            echo "date=$(date -u +%Y%m%d)"
           } >> "${GITHUB_OUTPUT}"
 
   image:
@@ -115,6 +128,7 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           NAME: ${{ matrix.variant.name }}
           VERSION: ${{ matrix.openfoam }}
+          DATE: ${{ needs.matrix.outputs.date }}
         run: |
           set -euo pipefail
           image="ghcr.io/${OWNER,,}/${NAME}"
@@ -122,6 +136,8 @@ jobs:
             echo "image=${image}"
             echo "tags<<EOF"
             echo "${image}:${VERSION}"
+            # Dated tag for consumers that cache images by name (Apptainer SIF caches).
+            echo "${image}:${VERSION}-${DATE}"
             [[ "${VERSION}" == "${LATEST_VERSION}" ]] && echo "${image}:latest"
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
@@ -163,6 +179,13 @@ jobs:
               apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 >/dev/null
             }
             echo "WM_PROJECT_VERSION=${WM_PROJECT_VERSION} FOAM_MPI=${FOAM_MPI}"
+            # The GPU-aware MPICH of the CUDA images links the driver (libcuda.so.1),
+            # which the runner does not have; the toolkit stub stands in.
+            if [ -d /opt/mpich ] && [ -d /usr/local/cuda/lib64/stubs ]; then
+              export LD_LIBRARY_PATH=/usr/local/cuda/lib64/stubs:${LD_LIBRARY_PATH}
+            fi
+            echo "libPstream resolves MPI to:"
+            ldd "${FOAM_LIBBIN}/${FOAM_MPI}/libPstream.so" | grep -E "libmpi\.so"
             bash /recipe/run_test.sh'
 
       - name: Push the image

@@ -24,10 +24,15 @@ docker run --rm -it ghcr.io/exasim-project/openfoam:2512 blockMesh -help
 ```
 
 `docker/Dockerfile` installs the published package rather than compiling, so an image builds
-in minutes. It takes a `BASE_IMAGE` build arg, which layers OpenFOAM on other images, such as
-the Ginkgo GPU images from
-[ginkgo-packaging](https://github.com/exasim-project/ginkgo-packaging); dispatch
-`docker.yaml` with a `variants` list for those.
+in minutes. It takes a `BASE_IMAGE` build arg, which layers OpenFOAM on other images.
+
+`ghcr.io/exasim-project/openfoam-ginkgo-{cpu,cuda,rocm,sycl}:<version>` put OpenFOAM on the
+Ginkgo images from [ginkgo-packaging](https://github.com/exasim-project/ginkgo-packaging):
+OpenFOAM + Ginkgo develop + (in the GPU images) a GPU-aware MPICH. OpenFOAM's conda copy
+of `libmpi` is removed in these images, so OpenFOAM uses the base image's MPICH; both are
+MPICH ABI. They are rebuilt weekly to follow the Ginkgo nightlies; every image also gets a
+dated `<version>-<YYYYMMDD>` tag for consumers that cache images by name, such as
+Apptainer-based CI runners.
 
 ## Why this exists
 
@@ -92,7 +97,7 @@ docker/
   activate.sh        FOAM_* environment for shells in the image, without conda
 .github/workflows/
   conda_packages.yaml       matrix over versions x platforms, publish to prefix.dev
-  docker.yaml               matrix over versions x base images, test, push to ghcr.io
+  docker.yaml               matrix over versions x base images (plain, Ginkgo), test, push
 ```
 
 ## Building locally
