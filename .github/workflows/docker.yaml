@@ -33,6 +33,11 @@ on:
         required: false
         default: false
         type: boolean
+      tag_suffix:
+        description: 'Appended to the dated tag, e.g. "-2" for a second build on one day'
+        required: false
+        default: ""
+        type: string
   push:
     tags:
       - "v*"
@@ -69,6 +74,7 @@ jobs:
           IN_VERSIONS: ${{ inputs.openfoam_versions }}
           IN_VARIANTS: ${{ inputs.variants }}
           IN_PUSH: ${{ inputs.push }}
+          IN_TAG_SUFFIX: ${{ inputs.tag_suffix }}
         run: |
           set -euo pipefail
           versions="${IN_VERSIONS:-}"
@@ -94,7 +100,7 @@ jobs:
             echo "versions=$(jq -c . <<<"${versions}")"
             echo "variants=$(jq -c . <<<"${variants}")"
             echo "push=${push}"
-            echo "date=$(date -u +%Y%m%d)"
+            echo "date=$(date -u +%Y%m%d)${IN_TAG_SUFFIX:-}"
           } >> "${GITHUB_OUTPUT}"
 
   image:
