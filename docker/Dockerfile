@@ -36,9 +36,11 @@ COPY --from=env /opt/openfoam /opt/openfoam
 # images, must be the one OpenFOAM uses: drop the conda copy of libmpi so libPstream and
 # the other conda libraries resolve to the base image's. Both are MPICH ABI
 # (libmpi.so.12), and OpenFOAM was built against MPICH 5, so no rebuild is needed.
-RUN if ldconfig -p | grep -q 'libmpi\.so\.12 '; then \
+# Intel MPI (oneAPI images) is not in the ld.so cache but found through I_MPI_ROOT.
+RUN if ldconfig -p | grep -q 'libmpi\.so\.12 ' \
+        || [ -e "${I_MPI_ROOT:-/nonexistent}/lib/libmpi.so.12" ]; then \
         rm -f /opt/openfoam/lib/libmpi.so*; \
-        echo "OpenFOAM uses the base image's MPI: $(ldconfig -p | grep 'libmpi\.so\.12 ')"; \
+        echo "OpenFOAM uses the base image's MPI: $(ldconfig -p | grep 'libmpi\.so\.12 ' || echo "${I_MPI_ROOT}")"; \
     fi
 # BASH_ENV covers non-interactive bash (CI scripts, `bash -c`), ENV covers POSIX sh,
 # bash.bashrc covers interactive shells.
