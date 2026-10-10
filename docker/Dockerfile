@@ -31,6 +31,12 @@ COPY docker/activate.sh /opt/openfoam/activate.sh
 
 FROM ${BASE_IMAGE}
 ARG OPENFOAM_VERSION
+ARG DEBIAN_FRONTEND=noninteractive
+# Python for OpenFOAM tooling (foamlib, PyFoam, case setup scripts). Every base image
+# used here is Ubuntu.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip python3-venv \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=env /opt/openfoam /opt/openfoam
 # A base image that brings its own MPICH, such as the GPU-aware one in the Ginkgo GPU
 # images, must be the one OpenFOAM uses: drop the conda copy of libmpi so libPstream and

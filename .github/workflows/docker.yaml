@@ -172,8 +172,7 @@ jobs:
             CHANNEL=https://prefix.dev/${{ vars.PREFIX_DEV_CHANNEL || 'greole/exasim-project' }}
 
       # The same 3-D duct test the conda package runs, here against the image's
-      # environment activation (BASH_ENV) rather than conda's. The test evaluates the
-      # result with python3, which is installed into this throwaway container only.
+      # environment activation (BASH_ENV) rather than conda's.
       - name: Run the 3-D duct regression test
         env:
           IMAGE: ${{ steps.tags.outputs.image }}
@@ -181,9 +180,6 @@ jobs:
         run: |
           docker run --rm -v "${PWD}/recipe:/recipe:ro" "${IMAGE}:${VERSION}" bash -c '
             set -e
-            command -v python3 >/dev/null || {
-              apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 >/dev/null
-            }
             echo "WM_PROJECT_VERSION=${WM_PROJECT_VERSION} FOAM_MPI=${FOAM_MPI}"
             # The GPU-aware MPICH of the CUDA images links the driver (libcuda.so.1),
             # which the runner does not have; the toolkit stub stands in.
