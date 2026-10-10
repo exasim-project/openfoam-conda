@@ -1,0 +1,201 @@
+# SPDX-FileCopyrightText: 2026 NeoFOAM authors
+#
+# SPDX-License-Identifier: MIT
+
+name: Docker images
+
+# Builds OpenFOAM Docker images from the published conda packages (docker/Dockerfile),
+# runs the 3-D duct regression test inside each image and pushes them to
+# ghcr.io/<owner>/<variant>:<openfoam version> and :<openfoam version>-<YYYYMMDD>.
+#
+# A variant is an image name plus a base image. By default these are a plain ubuntu
+# image and OpenFOAM on top of each Ginkgo image from ginkgo-packaging
+# (openfoam-ginkgo-{cpu,cuda,rocm,sycl}), whose GPU-aware MPICH OpenFOAM then uses.
+# The weekly run picks up new Ginkgo nightlies; dispatch to rebuild sooner. A private
+# base image on ghcr.io must grant this repository read access (package settings ->
+# Manage Actions access).
+
+on:
+  workflow_dispatch:
+    inputs:
+      openfoam_versions:
+        description: "JSON list of OpenFOAM versions to build"
+        required: false
+        default: '["2506","2512","2606"]'
+        type: string
+      variants:
+        description: 'JSON list of {"name": image name, "base": base image}; empty builds all'
+        required: false
+        default: ""
+        type: string
+      push:
+        description: "Push the images to ghcr.io"
+        required: false
+        default: false
+        type: boolean
+      tag_suffix:
+        description: 'Appended to the dated tag, e.g. "-2" for a second build on one day'
+        required: false
+        default: ""
+        type: string
+  push:
+    tags:
+      - "v*"
+  # Weekly, after the Ginkgo nightlies, so the openfoam-ginkgo images follow Ginkgo develop.
+  schedule:
+    - cron: "0 6 * * 1"
+  # Build-only check of the Dockerfile; nothing is pushed.
+  pull_request:
+    paths:
+      - "docker/**"
+      - ".github/workflows/docker.yaml"
+
+permissions:
+  contents: read
+
+env:
+  # The newest version also gets the `latest` tag.
+  LATEST_VERSION: "2606"
+
+jobs:
+  matrix:
+    name: Resolve build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.set.outputs.versions }}
+      variants: ${{ steps.set.outputs.variants }}
+      push: ${{ steps.set.outputs.push }}
+      date: ${{ steps.set.outputs.date }}
+    steps:
+      - name: Resolve inputs
+        id: set
+        shell: bash
+        env:
+          IN_VERSIONS: ${{ inputs.openfoam_versions }}
+          IN_VARIANTS: ${{ inputs.variants }}
+          IN_PUSH: ${{ inputs.push }}
+          IN_TAG_SUFFIX: ${{ inputs.tag_suffix }}
+        run: |
+          set -euo pipefail
+          versions="${IN_VERSIONS:-}"
+          variants="${IN_VARIANTS:-}"
+          [[ -n "${versions}" ]] || versions='["2506","2512","2606"]'
+          if [[ -z "${variants}" ]]; then
+            variants='[{"name":"openfoam","base":"ubuntu:24.04"}'
+            for backend in cpu cuda rocm sycl; do
+              variants+=",{\"name\":\"openfoam-ginkgo-${backend}\",\"base\":\"ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ginkgo-${backend}:nightly\"}"
+            done
+            variants+=']'
+          fi
+          # Validate early, a malformed input otherwise fails in fromJSON with a vague error.
+          jq -e 'type == "array" and length > 0' <<<"${versions}" >/dev/null
+          jq -e 'type == "array" and length > 0 and all(.name and .base)' <<<"${variants}" >/dev/null
+
+          push=false
+          if [[ "${GITHUB_REF_TYPE}" == "tag" || "${GITHUB_EVENT_NAME}" == "schedule" || "${IN_PUSH}" == "true" ]]; then
+            push=true
+          fi
+
+          {
+            echo "versions=$(jq -c . <<<"${versions}")"
+            echo "variants=$(jq -c . <<<"${variants}")"
+            echo "push=${push}"
+            echo "date=$(date -u +%Y%m%d)${IN_TAG_SUFFIX:-}"
+          } >> "${GITHUB_OUTPUT}"
+
+  image:
+    name: ${{ matrix.variant.name }} ${{ matrix.openfoam }}
+    needs: matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        openfoam: ${{ fromJSON(needs.matrix.outputs.versions) }}
+        variant: ${{ fromJSON(needs.matrix.outputs.variants) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # The CUDA, ROCm and oneAPI base images alone take up to 30 GB.
+      - name: Free disk space
+        if: matrix.variant.base != 'ubuntu:24.04'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache /usr/local/share/boost /usr/local/.ghcup
+          sudo docker image prune --all --force
+          df -h /
+
+      - name: Resolve image tags
+        id: tags
+        env:
+          OWNER: ${{ github.repository_owner }}
+          NAME: ${{ matrix.variant.name }}
+          VERSION: ${{ matrix.openfoam }}
+          DATE: ${{ needs.matrix.outputs.date }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${OWNER,,}/${NAME}"
+          {
+            echo "image=${image}"
+            echo "tags<<EOF"
+            echo "${image}:${VERSION}"
+            # Dated tag for consumers that cache images by name (Apptainer SIF caches).
+            echo "${image}:${VERSION}-${DATE}"
+            [[ "${VERSION}" == "${LATEST_VERSION}" ]] && echo "${image}:latest"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Also needed without pushing: the base image may be a private ghcr.io package.
+      - name: Log in to ghcr.io
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          load: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            BASE_IMAGE=${{ matrix.variant.base }}
+            OPENFOAM_VERSION=${{ matrix.openfoam }}
+            CHANNEL=https://prefix.dev/${{ vars.PREFIX_DEV_CHANNEL || 'greole/exasim-project' }}
+
+      # The same 3-D duct test the conda package runs, here against the image's
+      # environment activation (BASH_ENV) rather than conda's.
+      - name: Run the 3-D duct regression test
+        env:
+          IMAGE: ${{ steps.tags.outputs.image }}
+          VERSION: ${{ matrix.openfoam }}
+        run: |
+          docker run --rm -v "${PWD}/recipe:/recipe:ro" "${IMAGE}:${VERSION}" bash -c '
+            set -e
+            echo "WM_PROJECT_VERSION=${WM_PROJECT_VERSION} FOAM_MPI=${FOAM_MPI}"
+            # The GPU-aware MPICH of the CUDA images links the driver (libcuda.so.1),
+            # which the runner does not have; the toolkit stub stands in.
+            if [ -d /opt/mpich ] && [ -d /usr/local/cuda/lib64/stubs ]; then
+              export LD_LIBRARY_PATH=/usr/local/cuda/lib64/stubs:${LD_LIBRARY_PATH}
+            fi
+            echo "libPstream resolves MPI to:"
+            ldd "${FOAM_LIBBIN}/${FOAM_MPI}/libPstream.so" | grep -E "libmpi\.so"
+            bash /recipe/run_test.sh'
+
+      - name: Push the image
+        if: needs.matrix.outputs.push == 'true'
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          set -euo pipefail
+          for tag in ${TAGS}; do
+            docker push "${tag}"
+          done
