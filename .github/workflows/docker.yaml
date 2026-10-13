@@ -169,7 +169,7 @@ jobs:
           build-args: |
             BASE_IMAGE=${{ matrix.variant.base }}
             OPENFOAM_VERSION=${{ matrix.openfoam }}
-            CHANNEL=https://prefix.dev/${{ vars.PREFIX_DEV_CHANNEL || 'greole/exasim-project' }}
+            CHANNEL=https://prefix.dev/${{ vars.PREFIX_DEV_CHANNEL || 'exasim-project/main' }}
 
       # The same 3-D duct test the conda package runs, here against the image's
       # environment activation (BASH_ENV) rather than conda's.

@@ -19,7 +19,7 @@ ARG MICROMAMBA_IMAGE=mambaorg/micromamba:2.9.0
 
 FROM ${MICROMAMBA_IMAGE} AS env
 ARG OPENFOAM_VERSION
-ARG CHANNEL=https://prefix.dev/greole/exasim-project
+ARG CHANNEL=https://prefix.dev/exasim-project/main
 USER root
 RUN test -n "${OPENFOAM_VERSION}" \
     && micromamba create --yes --prefix /opt/openfoam \

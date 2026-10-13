@@ -9,7 +9,7 @@ Conda packages for ESI OpenFOAM, built for `linux-64` and `osx-arm64` and publis
 [prefix.dev](https://prefix.dev) channel.
 
 ```bash
-pixi add openfoam -c https://prefix.dev/greole/exasim-project -c conda-forge
+pixi add openfoam -c https://prefix.dev/exasim-project/main -c conda-forge
 ```
 
 Versions built: **v2506**, **v2512**, **v2606**.

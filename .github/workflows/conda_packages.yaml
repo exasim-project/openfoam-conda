@@ -9,7 +9,7 @@ name: Conda packages
 # that is correct in 3-D and ships the src/ and applications/ trees.
 #
 # Requires two repository settings:
-#   vars.PREFIX_DEV_CHANNEL     e.g. greole/exasim-project
+#   vars.PREFIX_DEV_CHANNEL     e.g. exasim-project/main
 #   secrets.PREFIX_DEV_API_KEY  an API key with write access to that channel
 
 on:
