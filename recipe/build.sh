@@ -155,15 +155,23 @@ export MPI_ARCH_LIBS="-L${PREFIX}/lib -lmpi"
 # ones, which keeps the include paths while leaving the optimisation level alone.
 export FOAM_EXTRA_CFLAGS="${CFLAGS}"
 export FOAM_EXTRA_CXXFLAGS="${CXXFLAGS}"
-# -lgmp -lmpfr for the CGAL-based utilities, wrapped in --no-as-needed.
+# -lgmp -lmpfr for the CGAL-based utilities.
 #
-# wmake places FOAM_EXTRA_LDFLAGS BEFORE the object files, and conda's LDFLAGS carry
-# -Wl,--as-needed: at that point the linker has seen no undefined GMP symbols, so it
-# discards both libraries, and surfaceBooleanFeatures then fails with hundreds of
-# undefined __gmpz_* references. Adding the libraries alone was not enough — they have to
-# survive the position they are given. --as-needed is restored afterwards so nothing else
-# is over-linked.
-export FOAM_EXTRA_LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib -Wl,--no-as-needed -lgmp -lmpfr -Wl,--as-needed"
+# conda's LDFLAGS carry -Wl,--as-needed, and FOAM_EXTRA_LDFLAGS lands after wmake's own
+# -Xlinker --no-as-needed, so it would win. OpenFOAM cannot be linked --as-needed: its
+# run-time selection tables are filled by static initialisers, so a library such as
+# genericPatchFields, the turbulence wall functions or the scotch/metis/kahip
+# decomposition methods exports no symbol the executable references, and the linker
+# drops it. decomposePar then rejected every patch type it does not know itself
+# ("Unknown patchField type nutUSpaldingWallFunction") instead of falling back to the
+# generic patch field. The same flag also discarded gmp/mpfr, which sit before the
+# objects that need them. Strip --as-needed from the conda flags and end on
+# --no-as-needed, matching ESI's own wmake rules.
+scrub_ldflags() {
+    # shellcheck disable=SC2001
+    echo "$1" | sed -E 's/(^| )-Wl,--as-needed( |$)/ /g; s/,--as-needed//g; s/  +/ /g'
+}
+export FOAM_EXTRA_LDFLAGS="$(scrub_ldflags "${LDFLAGS:-}") -L${PREFIX}/lib -Wl,--no-as-needed -lgmp -lmpfr"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
     # Do NOT hand conda's compiler flags to the macOS build. OpenFOAM's darwin rules compile
@@ -324,3 +332,16 @@ cp "${RECIPE_DIR}/deactivate.sh" "${DEACTIVATE_DIR}/openfoam_deactivate.sh"
 test -d "${PREFIX}/src/OpenFOAM/lnInclude"
 test -d "${PREFIX}/src/Pstream/mpi/lnInclude"
 test -f "${PREFIX}/applications/utilities/mesh/manipulation/checkMesh/checkGeometry.C"
+
+# decomposePar must link the libraries it only reaches through run-time selection; with
+# --as-needed it silently lost them (see FOAM_EXTRA_LDFLAGS above).
+if [[ "$(uname -s)" == "Linux" ]]; then
+    _needed="$("${READELF:-readelf}" -d "${PREFIX}/bin/decomposePar" | grep NEEDED)"
+    for _lib in libgenericPatchFields libscotchDecomp; do
+        if ! grep -q "${_lib}${_lib_suffix}" <<< "${_needed}"; then
+            echo "decomposePar does not link ${_lib}${_lib_suffix}; --as-needed is back:" >&2
+            echo "${_needed}" >&2
+            exit 1
+        fi
+    done
+fi
