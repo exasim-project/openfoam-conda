@@ -6,7 +6,8 @@ name: Docker images
 
 # Builds OpenFOAM Docker images from the published conda packages (docker/Dockerfile),
 # runs the 3-D duct regression test inside each image and pushes them to
-# ghcr.io/<owner>/<variant>:<openfoam version> and :<openfoam version>-<YYYYMMDD>.
+# ghcr.io/<owner>/<variant>:<openfoam version>. Each build moves that tag, so it always
+# points at the newest image for the version.
 #
 # A variant is an image name plus a base image. By default these are a plain ubuntu
 # image and OpenFOAM on top of each Ginkgo image from ginkgo-packaging
@@ -33,11 +34,6 @@ on:
         required: false
         default: false
         type: boolean
-      tag_suffix:
-        description: 'Appended to the dated tag, e.g. "-2" for a second build on one day'
-        required: false
-        default: ""
-        type: string
   push:
     tags:
       - "v*"
@@ -65,7 +61,6 @@ jobs:
       versions: ${{ steps.set.outputs.versions }}
       variants: ${{ steps.set.outputs.variants }}
       push: ${{ steps.set.outputs.push }}
-      date: ${{ steps.set.outputs.date }}
     steps:
       - name: Resolve inputs
         id: set
@@ -74,7 +69,6 @@ jobs:
           IN_VERSIONS: ${{ inputs.openfoam_versions }}
           IN_VARIANTS: ${{ inputs.variants }}
           IN_PUSH: ${{ inputs.push }}
-          IN_TAG_SUFFIX: ${{ inputs.tag_suffix }}
         run: |
           set -euo pipefail
           versions="${IN_VERSIONS:-}"
@@ -100,7 +94,6 @@ jobs:
             echo "versions=$(jq -c . <<<"${versions}")"
             echo "variants=$(jq -c . <<<"${variants}")"
             echo "push=${push}"
-            echo "date=$(date -u +%Y%m%d)${IN_TAG_SUFFIX:-}"
           } >> "${GITHUB_OUTPUT}"
 
   image:
@@ -134,7 +127,6 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           NAME: ${{ matrix.variant.name }}
           VERSION: ${{ matrix.openfoam }}
-          DATE: ${{ needs.matrix.outputs.date }}
         run: |
           set -euo pipefail
           image="ghcr.io/${OWNER,,}/${NAME}"
@@ -142,8 +134,6 @@ jobs:
             echo "image=${image}"
             echo "tags<<EOF"
             echo "${image}:${VERSION}"
-            # Dated tag for consumers that cache images by name (Apptainer SIF caches).
-            echo "${image}:${VERSION}-${DATE}"
             [[ "${VERSION}" == "${LATEST_VERSION}" ]] && echo "${image}:latest"
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"

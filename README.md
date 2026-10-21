@@ -30,9 +30,9 @@ in minutes. It takes a `BASE_IMAGE` build arg, which layers OpenFOAM on other im
 Ginkgo images from [ginkgo-packaging](https://github.com/exasim-project/ginkgo-packaging):
 OpenFOAM + Ginkgo develop + (in the GPU images) a GPU-aware MPICH. OpenFOAM's conda copy
 of `libmpi` is removed in these images, so OpenFOAM uses the base image's MPICH; both are
-MPICH ABI. They are rebuilt weekly to follow the Ginkgo nightlies; every image also gets a
-dated `<version>-<YYYYMMDD>` tag for consumers that cache images by name, such as
-Apptainer-based CI runners.
+MPICH ABI. They are rebuilt weekly to follow the Ginkgo nightlies, and each rebuild moves
+the `<version>` tag, so `docker pull ghcr.io/exasim-project/openfoam-ginkgo-cuda:2506`
+always gets the newest image.
 
 ## Why this exists
 
