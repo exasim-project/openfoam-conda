@@ -34,7 +34,7 @@ source:
   sha256: ${{ openfoam_sha256 }}
 
 build:
-  number: 0
+  number: 1
   string: h${{ hash }}_${{ build_number }}
   skip:
     # Windows is not a target. OpenFOAM's wmake has darwin64/darwin64Clang/darwin64Gcc
